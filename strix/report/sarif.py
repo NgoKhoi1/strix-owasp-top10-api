@@ -193,6 +193,72 @@ def _stride_legs_for_cwe(cwe: str | None) -> tuple[str, ...]:
     return _CWE_TO_STRIDE.get(digits, _DEFAULT_STRIDE_LEGS)
 
 
+# CWE → OWASP API Security Top 10 (2023) category. A finding's rule gets an
+# ``owasp-api:APIn`` tag so API-focused reports can group findings by category.
+# Only confident single-category CWEs are mapped; an ambiguous or unmapped CWE
+# (and no-CWE findings) gets no API tag rather than a wrong one.
+_CWE_TO_OWASP_API: dict[str, str] = {
+    # API1 — Broken Object Level Authorization (BOLA/IDOR)
+    "639": "API1",  # Authorization Bypass Through User-Controlled Key
+    "566": "API1",  # Authorization Bypass Through User-Controlled SQL Primary Key
+    # API2 — Broken Authentication
+    "287": "API2",  # Improper Authentication
+    "290": "API2",  # Authentication Bypass by Spoofing
+    "294": "API2",  # Authentication Bypass by Capture-replay
+    "306": "API2",  # Missing Authentication for Critical Function
+    "307": "API2",  # Improper Restriction of Excessive Authentication Attempts
+    "347": "API2",  # Improper Verification of Cryptographic Signature (JWT)
+    "384": "API2",  # Session Fixation
+    "521": "API2",  # Weak Password Requirements
+    "613": "API2",  # Insufficient Session Expiration
+    "640": "API2",  # Weak Password Recovery Mechanism
+    "798": "API2",  # Use of Hard-coded Credentials
+    "1391": "API2",  # Use of Weak Credentials
+    # API3 — Broken Object Property Level Authorization
+    "915": "API3",  # Improperly Controlled Modification (Mass Assignment)
+    "213": "API3",  # Exposure of Sensitive Information Due to Incompatible Policies
+    # API4 — Unrestricted Resource Consumption
+    "770": "API4",  # Allocation of Resources Without Limits or Throttling
+    "400": "API4",  # Uncontrolled Resource Consumption
+    "799": "API4",  # Improper Control of Interaction Frequency
+    "1333": "API4",  # Inefficient Regular Expression Complexity (ReDoS)
+    # API5 — Broken Function Level Authorization
+    "285": "API5",  # Improper Authorization
+    "862": "API5",  # Missing Authorization
+    "863": "API5",  # Incorrect Authorization
+    "1220": "API5",  # Insufficient Granularity of Access Control
+    "269": "API5",  # Improper Privilege Management
+    # API6 — Unrestricted Access to Sensitive Business Flows
+    "840": "API6",  # Business Logic Errors
+    # API7 — Server-Side Request Forgery
+    "918": "API7",  # Server-Side Request Forgery
+    # API8 — Security Misconfiguration
+    "16": "API8",  # Configuration
+    "209": "API8",  # Generation of Error Message Containing Sensitive Information
+    "614": "API8",  # Sensitive Cookie Without 'Secure' Attribute
+    "942": "API8",  # Permissive Cross-domain Policy (CORS)
+    "1004": "API8",  # Sensitive Cookie Without 'HttpOnly' Flag
+    "756": "API8",  # Missing Custom Error Page
+    # API9 — Improper Inventory Management
+    "1059": "API9",  # Insufficient Technical Documentation
+    # API10 — Unsafe Consumption of APIs
+    "1104": "API10",  # Use of Unmaintained Third Party Components
+    "494": "API10",  # Download of Code Without Integrity Check
+}
+
+
+def owasp_api_category_for_cwe(cwe: str | None) -> str | None:
+    """Map a CWE id to an OWASP API Top 10 category (``API1``…``API10``), or
+    ``None`` when the CWE is absent, unrecognised, or not confidently one
+    category."""
+    if not cwe:
+        return None
+    digits = "".join(c for c in str(cwe) if c.isdigit())
+    if not digits:
+        return None
+    return _CWE_TO_OWASP_API.get(digits)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1101,6 +1167,10 @@ def _rule_tags(rule_id: str, report: dict[str, Any]) -> list[str]:
         tag = f"stride:{leg}"
         if tag not in tags:
             tags.append(tag)
+    # OWASP API Top 10 category tag (``owasp-api:API1``…) when the CWE maps to one.
+    api_category = owasp_api_category_for_cwe(report.get("cwe"))
+    if api_category:
+        tags.append(f"owasp-api:{api_category}")
     return tags
 
 

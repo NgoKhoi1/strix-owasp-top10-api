@@ -17,6 +17,7 @@ from pygments.lexers.special import TextLexer
 from pygments.util import ClassNotFound
 
 from strix.core.paths import run_record_path
+from strix.report.sarif import owasp_api_category_for_cwe
 
 
 if TYPE_CHECKING:
@@ -241,6 +242,7 @@ def render_vulnerability_md(report: dict[str, Any]) -> str:  # noqa: PLR0912, PL
         ("Method", report.get("method")),
         ("CVE", report.get("cve")),
         ("CWE", report.get("cwe")),
+        ("OWASP API", owasp_api_category_for_cwe(report.get("cwe"))),
     ]
     cvss = report.get("cvss")
     if cvss is not None:
