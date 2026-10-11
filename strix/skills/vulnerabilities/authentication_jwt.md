@@ -153,13 +153,23 @@ JWT/OIDC failures often enable token forgery, token confusion, cross-service acc
 
 ## Tooling
 
-- `jwt_tool -t <url> -rh "Authorization: Bearer <token>" -M at` runs the
-  full attack matrix (alg=none, RS→HS confusion, kid injection, claim
-  edits) and reports which mutations the server still accepts.
-- `jwt_tool <token> -C -d <wordlist>` brute-forces HMAC secrets when an
-  HS-family signature is in use.
-- Use `jwt_tool` to mint a token under a key you control once you find an
-  acceptance path (kid/jku/x5u/jwk), then replay via `repeat_request`.
+Use the `forge_jwt` tool to mint attack tokens, then deliver them with
+`send_request` / `repeat_request` (`Authorization: Bearer <token>`) and diff the
+response against a baseline to see which mutations the server accepts:
+
+- **alg=none**: `forge_jwt(base_token=<victim>, claim_overrides={"role":"admin"}, algorithm="none")`.
+- **Claim tampering re-signed**: add `algorithm="HS256", key="<guessed/leaked secret>"`.
+- **RS→HS confusion**: `algorithm="HS256", key="<server PEM public key>"` — forges a
+  token a server that trusts the header `alg` will HMAC-verify with its own public key.
+- **Header injection** (`kid`/`jku`/`x5u`/`jwk`): pass `extra_headers={...}` to point
+  key resolution at an attacker source or a path-traversal/SQLi `kid`.
+
+Work the attack matrix one mutation at a time: forge → deliver → diff. Note the
+request_id of the accepted forgery and the rejecting baseline for the report.
+
+HMAC secret brute-forcing (`jwt_tool -C`) is compute-bound and NOT available in
+thin HTTP mode; if a weak HS secret is suspected, record it as an open item for
+an offline check rather than attempting it here.
 
 ## Summary
 

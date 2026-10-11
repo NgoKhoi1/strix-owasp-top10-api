@@ -23,6 +23,7 @@ from strix.tools.agents_graph.tools import (
 )
 from strix.tools.coverage.tools import list_coverage, record_coverage, update_coverage
 from strix.tools.finish.tool import finish_scan
+from strix.tools.jwt.tool import forge_jwt
 from strix.tools.load_skill.tool import load_skill
 from strix.tools.mcp import (
     call_mcp,
@@ -332,6 +333,7 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     view_request,
     repeat_request,
     scope_rules,
+    forge_jwt,
     list_mcps,
     search_mcp_tools,
     get_mcp_tool_schema,
