@@ -42,8 +42,8 @@ def test_no_registration_leaves_builtin_only() -> None:
     assert registered_skill_dirs() == ()
     builtin = get_strix_resource_path("skills")
     assert skill_search_dirs() == (builtin,)
-    assert {"nmap", "subfinder"}.issubset(
-        {skill["name"] for skill in get_available_skills()["tooling"]}
+    assert {"idor", "unrestricted_resource_consumption"}.issubset(
+        {skill["name"] for skill in get_available_skills()["vulnerabilities"]}
     )
 
 

@@ -13,36 +13,18 @@ Thorough understanding before exploitation. Test every parameter, every endpoint
 
 ## Phase 1: Exhaustive Reconnaissance
 
-**Whitebox (source available)**
-- Map every file, module, and code path in the repository
-- Start with broad source-aware triage (`semgrep`, `ast-grep`, `gitleaks`, `trufflehog`, `trivy fs`) and use outputs to drive deep review
-- Execute at least one structural AST pass (`sg` and/or Tree-sitter) per repository and store artifacts for reuse
-- Keep AST artifacts bounded and query-driven (target relevant paths/sinks first; avoid whole-repo generic function dumps)
-- Use syntax-aware parsing (Tree-sitter tooling) to improve symbol, route, and sink extraction quality
-- Trace all entry points from HTTP handlers to database queries
-- Document all authentication mechanisms and implementations
-- Map authorization checks and access control model
-- Identify all external service integrations and API calls
-- Analyze configuration for secrets and misconfigurations
-- Review database schemas and data relationships
-- Map background jobs, cron tasks, async processing
-- Identify all serialization/deserialization points
-- Review file handling: upload, download, processing
-- Understand the deployment model and infrastructure assumptions
-- Check all dependency versions and repository risks against CVE/misconfiguration data
-- For quick CVE lookups on a named product/version, use `vulnx search <query>`
-  (ProjectDiscovery's CVE database) before falling back to web_search
-
-**Blackbox (no source)**
-- Exhaustive subdomain enumeration with multiple sources and tools
-- Full port scanning across all services
-- Complete content discovery with multiple wordlists
-- Technology fingerprinting on all assets
-- API discovery via docs, JavaScript analysis, fuzzing
-- Identify all parameters including hidden and rarely-used ones
-- Map all user roles with different account types
-- Document rate limiting, WAF rules, security controls
-- Document complete application architecture as understood from outside
+- Build the complete endpoint inventory from the API spec: every path, method,
+  parameter, auth requirement, and object-id shape
+- Enumerate undocumented surface (API9): version siblings (`/v1` vs `/v2`),
+  debug/introspection routes, endpoints the spec omits, extra methods on known
+  paths — all within authorized scope
+- Classify every operation: object-scoped (API1/BOLA) vs privileged (API5/BFLA)
+- Map all principals/roles/tenants available in scope — the full authorization
+  matrix you will diff against
+- Document the request/response shape of each operation with `send_request`
+- Identify operations that call paid/external downstreams (API4/API10) and
+  sensitive business flows (API6)
+- For CVE lookups on a named product/version, use web_search
 
 ## Phase 2: Business Logic Deep Dive
 
@@ -121,7 +103,7 @@ Individual bugs are starting points. Chain them for maximum impact:
 - Treat every finding as a pivot point: ask "what does this unlock next?"
 - Continue until reaching maximum privilege / maximum data exposure / maximum control
 - Prefer end-to-end exploit paths over isolated bugs: initial foothold → pivot → privilege gain → sensitive action/data
-- Validate chains by executing the full sequence (proxy + browser for workflows, python for automation)
+- Validate chains by executing the full request sequence with send_request/repeat_request, capturing the request_ids that prove each step
 - When a pivot is found, spawn focused agents to continue the chain in the next component
 
 ## Phase 5: Persistent Testing

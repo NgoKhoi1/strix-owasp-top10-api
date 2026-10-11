@@ -13,37 +13,27 @@ Optimize for fast feedback on critical security issues. Skip exhaustive enumerat
 
 ## Phase 1: Rapid Orientation
 
-**Whitebox (source available)**
-- Focus on recent changes: git diffs, new commits, modified files—these are most likely to contain fresh bugs
-- Run a fast static triage on changed files first (`semgrep`, then targeted `sg` queries)
-- Run at least one lightweight AST pass (`sg` or Tree-sitter) so structural mapping is not skipped
-- Keep AST commands tightly scoped to changed or high-risk paths; avoid broad repository-wide pattern dumps
-- Run quick secret and dependency checks (`gitleaks`, `trufflehog`, `trivy fs`) scoped to changed areas when possible
-- Identify security-sensitive patterns in changed code: auth checks, input handling, database queries, file operations
-- Trace user input through modified code paths
-- Check if security controls were modified or bypassed
-
-**Blackbox (no source)**
-- Map authentication and critical user flows
-- Identify exposed endpoints and entry points
-- Skip deep content discovery—test what's immediately accessible
+- Pull the endpoint inventory from the API spec; pick the highest-value
+  operations (auth, object-scoped reads/writes, admin actions).
+- Map the principals available in scope (tokens/tenants/roles) for authz diffs.
+- Skip exhaustive enumeration—test what the spec and provided credentials make
+  immediately reachable.
 
 ## Phase 2: High-Impact Targets
 
-Test in priority order:
+Test in priority order (OWASP API Top 10):
 
-1. **Authentication bypass** - login flaws, session issues, token weaknesses
-2. **Broken access control** - IDOR, privilege escalation, missing authorization
-3. **Remote code execution** - command injection, deserialization, SSTI
-4. **SQL injection** - authentication endpoints, search, filters
-5. **SSRF** - URL parameters, webhooks, integrations
-6. **Exposed secrets** - hardcoded credentials, API keys, config files
+1. **Broken Object Level Auth (API1/BOLA)** - cross-principal object access
+2. **Broken Function Level Auth (API5/BFLA)** - low-priv calling privileged ops
+3. **Broken Authentication (API2)** - login/session/JWT weaknesses
+4. **Broken Object Property Level Auth (API3)** - mass assignment, data exposure
+5. **SSRF (API7)** - URL params, webhooks, integrations
+6. **Security misconfig (API8)** - permissive CORS, verbose errors, headers
 
 Skip for quick scans:
-- Exhaustive subdomain enumeration
-- Full directory bruteforcing
+- Exhaustive undocumented-endpoint sweeps
 - Low-severity information disclosure
-- Theoretical issues without working PoC
+- Theoretical issues without a working two-request PoC
 
 ## Phase 3: Validation
 
@@ -57,11 +47,11 @@ When a strong primitive is found (auth weakness, injection point, internal acces
 
 ## Operational Guidelines
 
-- Use browser tool for quick manual testing of critical flows
-- Use terminal for targeted scans with fast presets (e.g., nuclei with critical/high templates only)
-- Use proxy to inspect traffic on key endpoints
-- Skip extensive fuzzing—use targeted payloads only
-- Create subagents only for parallel high-priority tasks
+- Drive each endpoint with `send_request`; prove authz issues with a
+  `repeat_request` diff (same request, different principal/id).
+- Use `list_requests`/`view_request` to inspect what you have sent.
+- Skip broad fuzzing—use targeted probes only.
+- Create subagents only for parallel high-priority tasks.
 
 ## Mindset
 

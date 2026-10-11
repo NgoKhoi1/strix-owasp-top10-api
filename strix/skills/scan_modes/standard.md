@@ -13,24 +13,12 @@ Systematic testing across the full attack surface. Understand the application be
 
 ## Phase 1: Reconnaissance
 
-**Whitebox (source available)**
-- Map codebase structure: modules, entry points, routing
-- Run `semgrep` first-pass triage to prioritize risky flows before deep manual review
-- Run at least one AST-structural mapping pass (`sg` and/or Tree-sitter), then use outputs for route, sink, and trust-boundary mapping
-- Keep AST output bounded to relevant paths and hypotheses; avoid whole-repo generic function dumps
-- Identify architecture pattern (MVC, microservices, monolith)
-- Trace input vectors: forms, APIs, file uploads, headers, cookies
-- Review authentication and authorization flows
-- Analyze database interactions and ORM usage
-- Check dependencies and repo risks with `trivy fs`, `gitleaks`, and `trufflehog`
-- Understand the data model and sensitive data locations
-
-**Blackbox (no source)**
-- Crawl application thoroughly, interact with every feature
-- Enumerate endpoints, parameters, and functionality
-- Fingerprint technology stack
-- Map user roles and access levels
-- Capture traffic with proxy to understand request/response patterns
+- Build the endpoint inventory from the API spec: paths, methods, parameters,
+  auth requirements, object-id shapes
+- Classify operations: object-scoped (API1 candidates) vs privileged (API5)
+- Map the principals/roles available in scope — the authorization matrix
+- Note request/response shapes with `send_request`, and probe for undocumented
+  siblings and version endpoints (API9)
 
 ## Phase 2: Business Logic Analysis
 
@@ -77,7 +65,7 @@ Test each attack surface methodically. Spawn focused subagents for different are
 - Demonstrate actual impact, not theoretical risk
 - Chain vulnerabilities to show maximum severity
 - Document full attack path from entry to impact
-- Use Python scripts through `exec_command` for complex exploit development
+- Prove each finding with a concrete two-request `send_request`/`repeat_request` diff
 
 ## Phase 5: Reporting
 
