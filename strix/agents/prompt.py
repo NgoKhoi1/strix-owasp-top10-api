@@ -37,16 +37,12 @@ def _resolve_skills(
     2. ``scan_modes/<mode>`` (always), plus ``scan_modes/diff`` when the
        run is scoped to a change set — diff scope overlays the depth
        mode rather than replacing it.
-    3. ``tooling/agent_browser`` (always — every agent has shell + the
-       agent-browser CLI).
-    4. ``tooling/python`` (always — Python runs through ``exec_command``;
-       sandbox scripts can import ``caido_api`` for Caido automation).
-    5. ``analysis/counterevidence`` and ``analysis/severity_calibration``
+    3. ``analysis/counterevidence`` and ``analysis/severity_calibration``
        (always — closure discipline and severity rubric apply to every
        agent that can open or close a candidate, or file a report).
-    6. ``coordination/root_agent`` for the root agent only — orchestration
+    4. ``coordination/root_agent`` for the root agent only — orchestration
        guidance for delegating to specialist subagents.
-    7. Whitebox-specific skills if applicable, including
+    5. Whitebox-specific skills if applicable, including
        ``analysis/fix_verification`` (only whitebox agents can attach an
        applyable ``fix_after``) and ``analysis/source_aware_discovery``.
     """
@@ -54,8 +50,8 @@ def _resolve_skills(
     ordered.append(f"scan_modes/{scan_mode}")
     if is_diff_scoped:
         ordered.append("scan_modes/diff")
-    ordered.append("tooling/agent_browser")
-    ordered.append("tooling/python")
+    # Thin HTTP mode: no shell, so the agent-browser / python-via-exec_command
+    # tooling skills no longer describe anything the agent can do.
     ordered.append("analysis/counterevidence")
     ordered.append("analysis/severity_calibration")
     if is_root:

@@ -56,7 +56,6 @@ def _wire_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(runner, "set_scan_id", lambda _scan_id: None)
     monkeypatch.setattr(runner, "load_settings", _settings)
     monkeypatch.setattr(runner, "configure_sdk_model_defaults", lambda _s: None)
-    monkeypatch.setattr(runner, "uses_chat_completions_tool_schema", lambda _m, _s: False)
     monkeypatch.setattr(todo_tools, "hydrate_todos_from_disk", lambda _d: None)
     monkeypatch.setattr(notes_tools, "hydrate_notes_from_disk", lambda _d: None)
 

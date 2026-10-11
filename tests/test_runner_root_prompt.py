@@ -69,11 +69,6 @@ def _patch_engine_scaffold(
     )
     monkeypatch.setattr(runner, "load_settings", lambda: settings)
     monkeypatch.setattr(runner, "configure_sdk_model_defaults", lambda _settings: None)
-    monkeypatch.setattr(
-        runner,
-        "uses_chat_completions_tool_schema",
-        lambda _model, _settings: False,
-    )
 
     monkeypatch.setattr(todo_tools, "hydrate_todos_from_disk", lambda _state_dir: None)
     monkeypatch.setattr(notes_tools, "hydrate_notes_from_disk", lambda _state_dir: None)

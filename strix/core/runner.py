@@ -4,16 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import io
 import json
 import logging
 import uuid
 from collections.abc import Callable
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from agents import RunConfig
-from agents.sandbox import SandboxRunConfig
 from openai import RateLimitError
 
 from strix.agents.factory import build_strix_agent, make_child_factory
@@ -25,7 +23,6 @@ from strix.config.models import (
     configure_sdk_model_defaults,
     model_supports_images,
     supports_strict_tool_schemas,
-    uses_chat_completions_tool_schema,
 )
 from strix.config.settings import DEFAULT_MAX_TURNS
 from strix.core.agents import AgentCoordinator, BudgetPolicy
@@ -46,14 +43,11 @@ from strix.core.inputs import (
 from strix.core.paths import run_dir_for, runtime_state_dir
 from strix.core.sessions import open_agent_session
 from strix.report.state import get_global_report_state
-from strix.runtime import session_manager
 from strix.telemetry import set_scan_phase
 from strix.telemetry.logging import set_scan_id, setup_scan_logging
 from strix.tools.finish.tool import finish_scan
-from strix.tools.output_store import (
-    WORKSPACE_SPILL_DIR,
-    configure_spill_writer,
-)
+from strix.tools.output_store import configure_spill_writer
+from strix.tools.proxy.http_store import RequestStore
 
 
 if TYPE_CHECKING:
@@ -219,13 +213,10 @@ async def run_strix_scan(
     mcp_status_sink: McpStatusSink | None = None,
     root_finish_tool: Tool = finish_scan,
 ) -> RunResultBase | None:
-    """Run or resume one Strix scan against a sandbox.
+    """Run or resume one Strix scan (thin HTTP mode: in-process, no sandbox).
 
     ``root_instructions_override`` adds root scan instructions to the rendered
     root prompt without replacing the system-verified scope block.
-    ``extra_files`` entries (``{"workspace_path", "content"}``) are placed into
-    the sandbox workspace at session bring-up; see
-    :func:`strix.runtime.session_manager.create_or_reuse`.
     ``extra_system_prompt_context`` is merged into the root agent's scan
     context before prompt rendering. Child agents keep the standard scan prompt
     and context.
@@ -246,6 +237,11 @@ async def run_strix_scan(
     def report(phase: str) -> None:
         if status_sink is not None:
             status_sink(phase)
+
+    # Thin HTTP mode has no Docker sandbox: code-mounting and container teardown
+    # do not apply. These are kept in the signature for caller compatibility.
+    # ponytail: drop from the signature once the CLI stops passing them.
+    del local_sources, extra_files, cleanup_on_exit
 
     if scan_id is None:
         scan_id = f"scan-{uuid.uuid4().hex[:8]}"
@@ -283,7 +279,6 @@ async def run_strix_scan(
     ):
         configure_sdk_api_route(resolved_model, settings)
     logger.info("LLM model resolved: %s", resolved_model)
-    chat_completions_tools = uses_chat_completions_tool_schema(resolved_model, settings)
     strict_tool_schemas = supports_strict_tool_schemas(resolved_model)
     if not strict_tool_schemas:
         logger.info("Sending non-strict tool schemas: %s caps strict tools", resolved_model)
@@ -356,35 +351,15 @@ async def run_strix_scan(
     else:
         root_id = uuid.uuid4().hex[:8]
 
-    logger.info("Bringing up sandbox session for scan %s", scan_id)
-    set_scan_phase("sandbox_init")
-    bundle = await session_manager.create_or_reuse(
-        scan_id,
-        image=image,
-        local_sources=local_sources or [],
-        extra_files=extra_files,
-        status_sink=status_sink,
-    )
+    # Thin HTTP mode: no Docker sandbox. The agent sends HTTP requests only
+    # (no arbitrary code), so there is no container to bring up and no
+    # workspace to spill oversized tool output into — it is bounded inline.
     report("Waiting for the first model response")
-    logger.info("Sandbox ready for scan %s", scan_id)
     set_scan_phase("agent_setup")
-
-    sandbox_session = bundle["session"]
-
-    async def _spill_to_workspace(output_id: str, text: str) -> str | None:
-        """Write an oversized tool result into the sandbox; return its path or None."""
-        path = f"{WORKSPACE_SPILL_DIR}/{output_id}.txt"
-        try:
-            await sandbox_session.write(Path(path), io.BytesIO(text.encode("utf-8")))
-        except Exception:
-            logger.exception("failed to spill tool output to sandbox workspace")
-            return None
-        return path
-
-    configure_spill_writer(_spill_to_workspace)
 
     sessions_to_close: list[SQLiteSession] = []
     mcp_registry: McpRegistry | None = None
+    http_store = RequestStore()
 
     try:
         targets = scan_config.get("targets") or []
@@ -406,7 +381,6 @@ async def run_strix_scan(
             model=resolved_model,
             model_provider=StrixProvider(),
             model_settings=model_settings,
-            sandbox=SandboxRunConfig(client=bundle["client"], session=bundle["session"]),
             trace_include_sensitive_data=False,
             # A hallucinated tool name is a recoverable model mistake, not a scan-ending
             # error: hand it back as a tool result so the agent can correct itself.
@@ -424,6 +398,18 @@ async def run_strix_scan(
             coordinator.set_budget_extender(hooks.extend_budget)
 
         scope_context = build_scope_context(scan_config)
+
+        # Seed the HTTP scope allowlist from the authorized hosts so an
+        # out-of-scope request is refused before any bytes leave the process.
+        # Empty allowlist (e.g. code-only scans) means allow-all; the agent can
+        # tighten or widen within authorization via the scope_rules tool.
+        for tgt in scope_context.get("authorized_targets", []):
+            if tgt.get("type") not in ("web_application", "api_spec", "ip_address"):
+                continue
+            value = tgt.get("value") or ""
+            host = urlparse(value).hostname if "://" in value else value.split("/")[0].split(":")[0]
+            if host and host not in http_store.allowlist:
+                http_store.allowlist.append(host)
 
         # Attach the run's MCP connections and hold their live sessions in a
         # per-run registry. The connections are source-agnostic: a caller
@@ -503,7 +489,6 @@ async def run_strix_scan(
             is_whitebox=is_whitebox,
             is_diff_scoped=is_diff_scoped,
             interactive=interactive,
-            chat_completions_tools=chat_completions_tools,
             strict_tool_schemas=strict_tool_schemas,
             system_prompt_context=root_context,
             instructions_override=root_instructions,
@@ -525,7 +510,6 @@ async def run_strix_scan(
             is_whitebox=is_whitebox,
             is_diff_scoped=is_diff_scoped,
             interactive=interactive,
-            chat_completions_tools=chat_completions_tools,
             strict_tool_schemas=strict_tool_schemas,
             system_prompt_context=scope_context,
             supports_images=supports_images,
@@ -547,8 +531,7 @@ async def run_strix_scan(
 
         context: dict[str, Any] = {
             "coordinator": coordinator,
-            "sandbox_session": bundle["session"],
-            "caido_client": bundle["caido_client"],
+            "http_store": http_store,
             "mcp_registry": mcp_registry,
             "agent_id": root_id,
             "parent_id": None,
@@ -680,9 +663,8 @@ async def run_strix_scan(
             with contextlib.suppress(Exception):
                 await mcp_registry.close()
         with contextlib.suppress(Exception):
+            await http_store.aclose()
+        with contextlib.suppress(Exception):
             await coordinator._maybe_snapshot()
-        if cleanup_on_exit:
-            logger.info("Tearing down sandbox session for scan %s", scan_id)
-            await session_manager.cleanup(scan_id)
         logger.info("Strix scan %s done", scan_id)
         teardown_logging()

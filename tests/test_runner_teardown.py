@@ -23,7 +23,6 @@ def _wire_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     settings = _settings()
     monkeypatch.setattr(runner, "load_settings", lambda: settings)
     monkeypatch.setattr(runner, "configure_sdk_model_defaults", lambda _s: None)
-    monkeypatch.setattr(runner, "uses_chat_completions_tool_schema", lambda _m, _s: False)
     monkeypatch.setattr(todo_tools, "hydrate_todos_from_disk", lambda _d: None)
     monkeypatch.setattr(notes_tools, "hydrate_notes_from_disk", lambda _d: None)
 
@@ -36,7 +35,7 @@ def _wire_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.setattr(session_manager, "create_or_reuse", _create_or_reuse)
     monkeypatch.setattr(session_manager, "cleanup", _cleanup)
     monkeypatch.setattr(runner, "build_root_task", lambda _c: "task")
-    monkeypatch.setattr(runner, "build_scope_context", lambda _c: "")
+    monkeypatch.setattr(runner, "build_scope_context", lambda _c: {"authorized_targets": []})
     monkeypatch.setattr(runner, "make_model_settings", lambda *_a, **_k: ModelSettings())
     monkeypatch.setattr(runner, "build_strix_agent", lambda **_k: object())
     monkeypatch.setattr(runner, "make_child_factory", lambda **_k: lambda **_kk: object())

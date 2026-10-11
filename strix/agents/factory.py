@@ -1,20 +1,15 @@
-"""Build SandboxAgents for root + child Strix runs."""
+"""Build Agents for root + child Strix runs."""
 
 from __future__ import annotations
 
 import dataclasses
-import inspect
 import json
 import logging
-import re
 from typing import TYPE_CHECKING, Any
 
+from agents import Agent
 from agents.agent import ToolsToFinalOutputResult
-from agents.sandbox import SandboxAgent
-from agents.sandbox.capabilities import Filesystem, Shell
-from agents.sandbox.errors import InvalidManifestPathError
-from agents.tool import CustomTool, FunctionTool, Tool
-from pydantic import ValidationError
+from agents.tool import FunctionTool, Tool
 
 from strix.agents.prompt import render_system_prompt
 from strix.config import load_settings
@@ -47,11 +42,10 @@ from strix.tools.nullish import is_nullish
 from strix.tools.output_store import bound_and_store, bound_text
 from strix.tools.proxy.tools import (
     list_requests,
-    list_sitemap,
     repeat_request,
     scope_rules,
+    send_request,
     view_request,
-    view_sitemap_entry,
 )
 from strix.tools.reporting.tool import (
     create_dependency_report,
@@ -80,52 +74,13 @@ from strix.tools.web_search.tool import web_get_contents, web_search
 
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Sequence
 
     from agents import RunContextWrapper
     from agents.tool import FunctionToolResult
 
 
 logger = logging.getLogger(__name__)
-
-
-_CUSTOM_TOOL_INPUT_FIELD_BY_NAME = {
-    "apply_patch": "patch",
-}
-_DEFAULT_CUSTOM_TOOL_INPUT_FIELD = "input"
-
-
-def _custom_tool_input_field(tool: CustomTool) -> str:
-    return _CUSTOM_TOOL_INPUT_FIELD_BY_NAME.get(tool.name, _DEFAULT_CUSTOM_TOOL_INPUT_FIELD)
-
-
-def _raw_input_schema(tool: CustomTool) -> dict[str, Any]:
-    input_field = _custom_tool_input_field(tool)
-    return {
-        "type": "object",
-        "properties": {
-            input_field: {
-                "type": "string",
-                "description": (
-                    f"Complete `{tool.name}` payload. Follow the tool description exactly."
-                ),
-            },
-        },
-        "required": [input_field],
-        "additionalProperties": False,
-    }
-
-
-def _extract_custom_input(tool: CustomTool, raw_input: str | dict[str, Any]) -> str:
-    if isinstance(raw_input, str):
-        try:
-            parsed = json.loads(raw_input)
-        except json.JSONDecodeError:
-            return ""
-    else:
-        parsed = raw_input
-    value = parsed.get(_custom_tool_input_field(tool))
-    return value if isinstance(value, str) else ""
 
 
 def _tool_output_limits() -> tuple[int, int]:
@@ -285,233 +240,6 @@ def _with_strictness(tool: FunctionTool, strict_schemas: bool) -> FunctionTool:
     return dataclasses.replace(tool, strict_json_schema=False)
 
 
-def _function_tool_with_error_result(tool: FunctionTool) -> FunctionTool:
-    invoke_tool = tool.on_invoke_tool
-
-    async def invoke(ctx: Any, raw_input: str) -> Any:
-        try:
-            return await _bound_result(await invoke_tool(ctx, raw_input))
-        except Exception as exc:  # noqa: BLE001 - tool errors should be model-visible results.
-            logger.debug("Tool %s failed; returning error as result", tool.name, exc_info=True)
-            return _format_tool_error(exc)
-
-    tool.on_invoke_tool = invoke
-    return tool
-
-
-def _custom_tool_as_function_tool(tool: CustomTool) -> FunctionTool:
-    async def invoke(ctx: Any, raw_input: str) -> Any:
-        custom_input = _extract_custom_input(tool, raw_input)
-        if not custom_input:
-            return f"`{_custom_tool_input_field(tool)}` must be a non-empty string."
-        try:
-            return await _bound_result(await tool.on_invoke_tool(ctx, custom_input))
-        except Exception as exc:  # noqa: BLE001 - matches SDK CustomTool error-as-result behavior.
-            logger.debug("Tool %s failed; returning error as result", tool.name, exc_info=True)
-            return _format_tool_error(exc)
-
-    needs_approval = tool.runtime_needs_approval()
-    function_needs_approval: bool | Callable[[Any, dict[str, Any], str], Awaitable[bool]]
-    if callable(needs_approval):
-
-        async def approve(ctx: Any, args: dict[str, Any], call_id: str) -> bool:
-            result = needs_approval(ctx, _extract_custom_input(tool, args), call_id)
-            if inspect.isawaitable(result):
-                result = await result
-            return bool(result)
-
-        function_needs_approval = approve
-    else:
-        function_needs_approval = needs_approval
-
-    return FunctionTool(
-        name=tool.name,
-        description=(
-            f"{tool.description}\n\n"
-            f"Pass the complete `{tool.name}` payload in `{_custom_tool_input_field(tool)}`."
-        ),
-        params_json_schema=_raw_input_schema(tool),
-        on_invoke_tool=invoke,
-        strict_json_schema=False,
-        needs_approval=function_needs_approval,
-    )
-
-
-def _bound_custom_tool(tool: CustomTool) -> CustomTool:
-    """Bound a native ``CustomTool`` result in place (Responses path)."""
-    invoke_tool = tool.on_invoke_tool
-
-    async def invoke(ctx: Any, raw_input: str) -> Any:
-        return await _bound_result(await invoke_tool(ctx, raw_input))
-
-    tool.on_invoke_tool = invoke
-    return tool
-
-
-def _configure_filesystem_tools(
-    toolset: Any, *, chat_completions: bool, strict_schemas: bool = True
-) -> None:
-    for name, tool in vars(toolset).items():
-        if chat_completions:
-            if isinstance(tool, CustomTool):
-                setattr(toolset, name, _custom_tool_as_function_tool(tool))
-            elif isinstance(tool, FunctionTool):
-                setattr(
-                    toolset,
-                    name,
-                    _function_tool_with_error_result(
-                        _with_strictness(_with_coerced_arguments(tool), strict_schemas)
-                    ),
-                )
-        elif isinstance(tool, CustomTool):
-            setattr(toolset, name, _bound_custom_tool(tool))
-        elif isinstance(tool, FunctionTool):
-            setattr(
-                toolset,
-                name,
-                _with_bounded_result(
-                    _with_strictness(_with_coerced_arguments(tool), strict_schemas)
-                ),
-            )
-
-
-def _make_filesystem_configurator(
-    *, chat_completions: bool, strict_schemas: bool, supports_images: bool = True
-) -> Any:
-    def configure(toolset: Any) -> None:
-        _configure_filesystem_tools(
-            toolset, chat_completions=chat_completions, strict_schemas=strict_schemas
-        )
-        if not supports_images:
-            toolset.view_image.is_enabled = False
-
-    return configure
-
-
-_CHARS_ESCAPE_RE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[0abtnvfr\\])")
-_CHARS_ESCAPE_MAP = {
-    "\\\\": "\\",
-    "\\n": "\n",
-    "\\t": "\t",
-    "\\r": "\r",
-    "\\0": "\x00",
-    "\\a": "\x07",
-    "\\b": "\x08",
-    "\\v": "\x0b",
-    "\\f": "\x0c",
-}
-
-
-def _decode_chars_escape(s: str) -> str:
-    if "\\" not in s:
-        return s
-
-    def sub(match: re.Match[str]) -> str:
-        token = match.group(0)
-        if token in _CHARS_ESCAPE_MAP:
-            return _CHARS_ESCAPE_MAP[token]
-        if token.startswith(("\\u", "\\x")):
-            return chr(int(token[2:], 16))
-        return token
-
-    return _CHARS_ESCAPE_RE.sub(sub, s)
-
-
-def _format_validation_error(tool_name: str, exc: ValidationError) -> str:
-    parts: list[str] = []
-    for err in exc.errors():
-        loc = ".".join(str(x) for x in err.get("loc", ()))
-        msg = err.get("msg", "invalid")
-        parts.append(f"{loc}: {msg}" if loc else msg)
-    return f"{tool_name}: invalid arguments — " + "; ".join(parts)
-
-
-def _apply_shell_output_cap(parsed: dict[str, Any]) -> None:
-    """Clamp the SDK shell tools' ``max_output_tokens`` to the configured
-    ceiling; a smaller explicit value is respected."""
-    ceiling = load_settings().context.tool_output_max_tokens
-    requested = parsed.get("max_output_tokens")
-    parsed["max_output_tokens"] = (
-        ceiling if not isinstance(requested, int) or requested > ceiling else requested
-    )
-
-
-def _wrap_exec_command(tool: FunctionTool) -> FunctionTool:
-    invoke_tool = tool.on_invoke_tool
-
-    async def invoke(ctx: Any, raw_input: str) -> Any:
-        try:
-            parsed = json.loads(raw_input)
-        except (json.JSONDecodeError, TypeError):
-            parsed = None
-        if isinstance(parsed, dict):
-            if "shell" not in parsed:
-                parsed["shell"] = "bash"
-            _apply_shell_output_cap(parsed)
-            raw_input = json.dumps(parsed)
-        try:
-            return await invoke_tool(ctx, raw_input)
-        except ValidationError as exc:
-            return _format_validation_error(tool.name, exc)
-        except InvalidManifestPathError as exc:
-            rel = exc.context.get("rel", "?")
-            return (
-                "exec_command: workdir must be a path inside /workspace "
-                "(or omitted to use the turn's cwd). "
-                f"Got: {rel!r}."
-            )
-
-    tool.on_invoke_tool = invoke
-    return tool
-
-
-def _wrap_write_stdin(tool: FunctionTool) -> FunctionTool:
-    invoke_tool = tool.on_invoke_tool
-
-    async def invoke(ctx: Any, raw_input: str) -> Any:
-        try:
-            parsed = json.loads(raw_input)
-        except json.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, dict):
-            if isinstance(parsed.get("chars"), str):
-                parsed["chars"] = _decode_chars_escape(parsed["chars"])
-            _apply_shell_output_cap(parsed)
-            raw_input = json.dumps(parsed)
-        try:
-            return await invoke_tool(ctx, raw_input)
-        except ValidationError as exc:
-            return _format_validation_error(tool.name, exc)
-
-    tool.on_invoke_tool = invoke
-    return tool
-
-
-def _configure_shell_tools(
-    toolset: Any, *, chat_completions: bool, strict_schemas: bool = True
-) -> None:
-    for name, tool in vars(toolset).items():
-        if not isinstance(tool, FunctionTool):
-            continue
-        wrapped = _with_strictness(_with_coerced_arguments(tool), strict_schemas)
-        if tool.name == "exec_command":
-            wrapped = _wrap_exec_command(wrapped)
-        elif tool.name == "write_stdin":
-            wrapped = _wrap_write_stdin(wrapped)
-        if chat_completions:
-            wrapped = _function_tool_with_error_result(wrapped)
-        setattr(toolset, name, wrapped)
-
-
-def _make_shell_configurator(*, chat_completions: bool, strict_schemas: bool) -> Any:
-    def configure(toolset: Any) -> None:
-        _configure_shell_tools(
-            toolset, chat_completions=chat_completions, strict_schemas=strict_schemas
-        )
-
-    return configure
-
-
 # Tools that hand control away by parking the agent rather than ending the scan.
 _PARKING_TOOLS: frozenset[str] = frozenset({"wait_for_user", "wait_for_agents"})
 
@@ -599,11 +327,10 @@ _BASE_TOOLS: tuple[Tool, ...] = (
     delete_vulnerability_report,
     list_reports,
     get_report,
+    send_request,
     list_requests,
     view_request,
     repeat_request,
-    list_sitemap,
-    view_sitemap_entry,
     scope_rules,
     list_mcps,
     search_mcp_tools,
@@ -669,19 +396,16 @@ def build_strix_agent(
     is_whitebox: bool = False,
     is_diff_scoped: bool = False,
     interactive: bool = False,
-    chat_completions_tools: bool = False,
     strict_tool_schemas: bool = True,
     system_prompt_context: dict[str, Any] | None = None,
     extra_tools: Sequence[Tool] | None = None,
     instructions_override: str | None = None,
     supports_images: bool = True,
     finish_tool: Tool = finish_scan,
-) -> SandboxAgent[Any]:
-    """Build a SandboxAgent for either root or child use.
+) -> Agent[Any]:
+    """Build an Agent for either root or child use.
 
     Args:
-        chat_completions_tools: Wrap SDK custom tools as function tools
-            when the selected backend cannot accept Responses custom tools.
         strict_tool_schemas: Send function tools as strict-schema tools. Off
             for routes that reject a toolset this size as strict.
         extra_tools: Additional tools for this scan agent only, on top of any
@@ -730,27 +454,12 @@ def build_strix_agent(
         is_whitebox,
     )
 
-    return SandboxAgent(
+    return Agent(
         name=name,
         instructions=instructions,
         tools=tools,
         tool_use_behavior=_finish_tool_use_behavior,
         model=None,
-        capabilities=[
-            Filesystem(
-                configure_tools=_make_filesystem_configurator(
-                    chat_completions=chat_completions_tools,
-                    strict_schemas=strict_tool_schemas,
-                    supports_images=supports_images,
-                ),
-            ),
-            Shell(
-                configure_tools=_make_shell_configurator(
-                    chat_completions=chat_completions_tools,
-                    strict_schemas=strict_tool_schemas,
-                ),
-            ),
-        ],
     )
 
 
@@ -760,7 +469,6 @@ def make_child_factory(
     is_whitebox: bool = False,
     is_diff_scoped: bool = False,
     interactive: bool = False,
-    chat_completions_tools: bool = False,
     strict_tool_schemas: bool = True,
     system_prompt_context: dict[str, Any] | None = None,
     supports_images: bool = True,
@@ -772,7 +480,7 @@ def make_child_factory(
     without the graph tool knowing about runner internals.
     """
 
-    def _factory(*, name: str, skills: list[str]) -> SandboxAgent[Any]:
+    def _factory(*, name: str, skills: list[str]) -> Agent[Any]:
         return build_strix_agent(
             name=name,
             skills=skills,
@@ -781,7 +489,6 @@ def make_child_factory(
             is_whitebox=is_whitebox,
             is_diff_scoped=is_diff_scoped,
             interactive=interactive,
-            chat_completions_tools=chat_completions_tools,
             strict_tool_schemas=strict_tool_schemas,
             system_prompt_context=system_prompt_context,
             supports_images=supports_images,
