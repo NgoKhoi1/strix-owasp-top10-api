@@ -70,7 +70,7 @@ Inject `\r\n\r\n` to terminate the current response and prepend a second attacke
 GET /redirect?to=foo%0d%0aSet-Cookie:%20admin=1%0d%0a%0d%0a<html>poisoned</html> HTTP/1.1
 ```
 
-Request smuggling is a separate request-boundary vulnerability involving disagreement between two HTTP parsers, not simply response header injection at the request layer. Load `http_request_smuggling` when conflicting lengths, transfer coding, HTTP/2 downgrades, or connection desynchronization are in scope.
+Request smuggling is a separate request-boundary vulnerability involving disagreement between two HTTP parsers, not simply response header injection at the request layer. It is out of scope in thin HTTP mode (httpx normalizes headers, so malformed/desync requests can't be sent) — note it as an open item for a raw-socket tool rather than testing it here.
 
 ### Cache Poisoning
 
@@ -172,7 +172,7 @@ The `X-Forwarded-*` family is informational — there is no protocol guarantee a
 4. **Probe forwarding headers** — spoof `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP`, `CF-Connecting-IP` against IP-restricted endpoints (admin, rate-limited)
 5. **Test cache key / response content split** — find inputs that change the body but not the cache key; confirm a second request from a different session sees the poisoned response
 6. **Test method override** — `X-HTTP-Method-Override` paired with state-changing endpoints reachable via POST or GET
-7. **Route framing discrepancies** — if evidence indicates request-boundary disagreement, switch to `http_request_smuggling`
+7. **Route framing discrepancies** — if evidence indicates request-boundary disagreement, note it as an open item (request smuggling needs a raw-socket tool, out of scope in thin HTTP mode)
 8. **Cross-protocol** — replay payloads over HTTP/1.1 and HTTP/2; diff behavior
 9. **Trace internal reprocessing** — where response headers can cause subrequests/internal redirects, diff retained fields and final handler selection
 

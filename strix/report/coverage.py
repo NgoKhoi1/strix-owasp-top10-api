@@ -68,21 +68,20 @@ _RISK_SKILL_CATEGORY = "vulnerabilities"
 #: How each vulnerability skill can legitimately appear in a ledger row.
 #:
 #: Matching a skill to a row is textual, and a skill's filename is not how a
-#: pentester writes the class down: an agent carrying ``path_traversal_lfi_rfi``
-#: records "Path Traversal", and one carrying ``weak_password_detection``
+#: pentester writes the class down: an agent carrying ``broken_function_level_authorization``
+#: records "BFLA", and one carrying ``weak_password_detection``
 #: records "weak password policy". A row matches when it contains every word
 #: of *any one* phrasing here. Skills absent from this map fall back to their
 #: own words, so a new skill is merely matched strictly, never crashed on —
 #: but add an entry, because a false gap asserts something untrue in a report.
 _SKILL_PHRASINGS: dict[str, tuple[str, ...]] = {
-    "agentic_system_security": (
-        "agentic",
-        "agent tool",
-        "mcp",
-        "confused deputy",
-        "tool invocation",
+    "api_inventory_management": (
+        "inventory management",
+        "undocumented endpoint",
+        "shadow api",
+        "old version",
+        "deprecated api",
     ),
-    "argument_injection": ("argument injection", "option injection", "argv"),
     "authentication_jwt": ("authentication", "jwt", "session"),
     "broken_function_level_authorization": (
         "function level authorization",
@@ -90,17 +89,8 @@ _SKILL_PHRASINGS: dict[str, tuple[str, ...]] = {
         "access control",
         "privilege escalation",
     ),
-    "browser_security": (
-        "browser",
-        "postmessage",
-        "xs leak",
-        "service worker",
-        "cross origin state",
-    ),
     "business_logic": ("business logic", "logic flaw"),
-    "csrf": ("csrf", "cross site request forgery"),
     "header_injection": ("header injection", "host header", "crlf"),
-    "http_request_smuggling": ("request smuggling", "desync"),
     "idor": ("idor", "object level authorization", "bola", "direct object reference"),
     "information_disclosure": (
         "information disclosure",
@@ -108,35 +98,19 @@ _SKILL_PHRASINGS: dict[str, tuple[str, ...]] = {
         "sensitive data",
         "data exposure",
     ),
-    "insecure_deserialization": ("deserialization",),
-    "insecure_file_uploads": ("file upload",),
-    "llm_prompt_injection": ("prompt injection",),
     "mass_assignment": ("mass assignment", "parameter binding"),
     "nosql_injection": ("nosql",),
-    "open_redirect": ("redirect",),
-    "path_traversal_lfi_rfi": (
-        "path traversal",
-        "directory traversal",
-        "file inclusion",
-        "lfi",
-        "rfi",
-    ),
-    "prototype_pollution": ("prototype pollution",),
     "race_conditions": ("race condition", "toctou"),
-    "rce": ("rce", "remote code execution", "code execution", "command injection"),
-    "semantic_confusion": (
-        "semantic confusion",
-        "parser differential",
-        "normalization",
-        "validator sink mismatch",
-    ),
     "sql_injection": ("sql injection", "sqli"),
     "ssrf": ("ssrf", "server side request forgery"),
-    "ssti": ("ssti", "template injection"),
-    "subdomain_takeover": ("subdomain takeover",),
+    "unrestricted_resource_consumption": (
+        "resource consumption",
+        "rate limit",
+        "rate limiting",
+        "denial of service",
+        "pagination",
+    ),
     "weak_password_detection": ("password", "credential", "brute force"),
-    "xss": ("xss", "cross site scripting", "script injection"),
-    "xxe": ("xxe", "xml external entity", "xml entity"),
 }
 
 

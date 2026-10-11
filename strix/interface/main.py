@@ -25,11 +25,7 @@ from strix.interface.cli_args import (
     resume_run_list_message,
     terminal_attached,
 )
-from strix.interface.environment import (
-    check_docker_installed,
-    pull_docker_image,
-    validate_environment,
-)
+from strix.interface.environment import validate_environment
 from strix.interface.interactive import (
     InteractiveInterfaceExitedError,
     InteractiveSetupUnavailableError,
@@ -482,8 +478,7 @@ def main() -> None:
     if args.resume_picker:
         _pick_run_to_resume(args)
 
-    check_docker_installed()
-    pull_docker_image()
+    # Thin HTTP mode: no Docker sandbox, so no docker-install check or image pull.
     validate_environment()
 
     # Everything below imports the scan engine; do not race the warm-up thread.

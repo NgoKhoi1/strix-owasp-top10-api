@@ -20,7 +20,7 @@ async def load_skill(ctx: RunContextWrapper, skills: list[str]) -> str:
     ``create_agent`` when spawning a specialist child instead.
 
     Args:
-        skills: List of skill names (e.g. ``["xss", "sql_injection"]``).
+        skills: List of skill names (e.g. ``["idor", "sql_injection"]``).
             Max 5. Names match the bare files under
             ``strix/skills/<category>/<name>.md``.
     """

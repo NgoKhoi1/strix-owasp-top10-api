@@ -98,3 +98,7 @@ schema.graphql
 /.benchmarks/
 /references/
 /strix_runs_main/
+
+# Local engagement inputs (may contain real tokens/credentials — never commit)
+/engagement.md
+/openapi.json

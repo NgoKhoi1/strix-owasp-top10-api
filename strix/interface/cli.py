@@ -12,7 +12,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from strix.config import load_settings
 from strix.config.settings import DEFAULT_MAX_TURNS
 from strix.core.runner import run_strix_scan
 from strix.report.state import ReportState, set_global_report_state
@@ -29,13 +28,9 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-def _resolve_sandbox_image() -> str:
-    image = load_settings().runtime.image
-    if not image:
-        raise RuntimeError(
-            "strix_image is not configured. Set it in ~/.strix/cli-config.json.",
-        )
-    return image
+# Thin HTTP mode: no Docker sandbox, so no image is pulled or used. The runner
+# accepts the arg for signature compatibility and ignores it.
+_THIN_MODE_IMAGE = "thin-http-mode"
 
 
 async def run_cli(args: Any) -> None:  # noqa: PLR0915
@@ -219,7 +214,7 @@ async def run_cli(args: Any) -> None:  # noqa: PLR0915
                 await run_strix_scan(
                     scan_config=scan_config,
                     scan_id=args.run_name,
-                    image=_resolve_sandbox_image(),
+                    image=_THIN_MODE_IMAGE,
                     local_sources=getattr(args, "local_sources", None) or [],
                     extra_files=read_workspace_files(getattr(args, "workspace_files", None)),
                     interactive=bool(getattr(args, "interactive", False)),

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _GRAPH = {
     "statuses": {"agent-1": "completed"},
     "names": {"agent-1": "injection-tester"},
-    "metadata": {"agent-1": {"skills": ["sql_injection", "xss"]}},
+    "metadata": {"agent-1": {"skills": ["sql_injection", "ssrf"]}},
 }
 
 
@@ -44,13 +44,13 @@ def test_unrecorded_risk_class_is_reported_back_to_the_root_agent() -> None:
 
     assert summary["coverage_recorded"] == 1
     assert len(summary["coverage_gaps"]) == 1
-    assert "xss" in summary["coverage_gaps"][0]
+    assert "ssrf" in summary["coverage_gaps"][0]
     assert "unexamined" in summary["coverage_gap_warning"]
 
 
 def test_fully_accounted_coverage_raises_no_gap_warning() -> None:
     _record("SQL injection")
-    _record("cross-site scripting")
+    _record("server side request forgery")
 
     summary = _coverage_summary(_GRAPH)
 
